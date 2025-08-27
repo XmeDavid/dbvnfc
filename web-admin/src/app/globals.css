@@ -1,6 +1,5 @@
 @import "tailwindcss";
 @import "leaflet/dist/leaflet.css";
-@import "react-quill/dist/quill.snow.css";
 
 :root {
   --background: #ffffff;

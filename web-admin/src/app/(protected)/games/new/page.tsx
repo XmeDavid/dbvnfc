@@ -1,13 +1,10 @@
 "use client";
 
-import dynamic from "next/dynamic";
 import { useMemo, useState } from "react";
 import { z } from "zod";
 import { v4 as uuidv4 } from "uuid";
 import LocationPickerMap, { LatLng } from "@/components/maps/LocationPickerMap";
 import { BaseLocation, Enigma } from "@/types/game";
-
-const ReactQuill = dynamic(() => import("react-quill"), { ssr: false });
 
 const baseSchema = z.object({
   id: z.string(),
@@ -97,7 +94,12 @@ export default function NewGamePage() {
             placeholder="Night Quest 2025"
           />
           <label className="text-sm">Rules (HTML)</label>
-          <ReactQuill theme="snow" value={rules} onChange={setRules} />
+          <textarea
+            className="w-full border rounded px-3 py-2 bg-transparent min-h-[120px] font-mono text-sm"
+            value={rules}
+            onChange={(e) => setRules(e.target.value)}
+            placeholder="Enter HTML content for game rules..."
+          />
           <div className="pt-4">
             <div className="flex items-center justify-between">
               <h2 className="font-medium">Enigmas</h2>
@@ -112,10 +114,11 @@ export default function NewGamePage() {
                     value={e.title}
                     onChange={(ev) => updateEnigma(e.id, { title: ev.target.value })}
                   />
-                  <ReactQuill
-                    theme="snow"
+                  <textarea
+                    className="w-full border rounded px-2 py-2 bg-transparent min-h-[100px] font-mono text-sm"
+                    placeholder="Enter HTML content for enigma..."
                     value={e.contentHtml}
-                    onChange={(val) => updateEnigma(e.id, { contentHtml: val })}
+                    onChange={(ev) => updateEnigma(e.id, { contentHtml: ev.target.value })}
                   />
                   <div className="flex items-center gap-2">
                     <input
