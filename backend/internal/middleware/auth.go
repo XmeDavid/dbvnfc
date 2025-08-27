@@ -46,3 +46,29 @@ func RequireAdmin(cfg JWTConfig) fiber.Handler {
 		return c.Next()
 	}
 }
+
+func RequireAuth(cfg JWTConfig) fiber.Handler {
+	return func(c *fiber.Ctx) error {
+		h := c.Get("Authorization")
+		if h == "" {
+			return fiber.ErrUnauthorized
+		}
+		parts := strings.SplitN(h, " ", 2)
+		if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
+			return fiber.ErrUnauthorized
+		}
+		token, err := jwt.Parse(parts[1], func(t *jwt.Token) (interface{}, error) {
+			return []byte(cfg.Secret), nil
+		})
+		if err != nil || !token.Valid {
+			return fiber.ErrUnauthorized
+		}
+		claims, ok := token.Claims.(jwt.MapClaims)
+		if !ok {
+			return fiber.ErrUnauthorized
+		}
+		c.Locals("userID", claims["sub"])
+		c.Locals("role", claims["role"])
+		return c.Next()
+	}
+}

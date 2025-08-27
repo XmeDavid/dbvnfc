@@ -43,4 +43,25 @@ func RegisterGames(api fiber.Router, pool *pgxpool.Pool, cfg *config.Config) {
 		}
 		return c.SendStatus(fiber.StatusCreated)
 	})
+
+	// PATCH endpoint for updating game bases (iOS client compatibility)
+	grp.Patch("/:id", func(c *fiber.Ctx) error {
+		id := c.Params("id")
+		var body struct {
+			Bases []map[string]any `json:"bases"`
+		}
+		if err := c.BodyParser(&body); err != nil {
+			return fiber.ErrBadRequest
+		}
+
+		// Update only the bases field
+		_, err := pool.Exec(context.Background(),
+			`update games set bases = $1 where id = $2`,
+			body.Bases, id)
+		if err != nil {
+			return fiber.ErrInternalServerError
+		}
+		
+		return c.SendStatus(fiber.StatusOK)
+	})
 }

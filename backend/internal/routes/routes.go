@@ -15,5 +15,6 @@ func Register(app *fiber.App, cfg *config.Config, pool *pgxpool.Pool) {
 	http.RegisterGames(api, pool, cfg)
 	http.RegisterTeams(api, pool, cfg)
 	http.RegisterProgress(api, pool, cfg)
+	http.RegisterTeamProgress(api, pool, cfg) // Team progress for mobile clients
 	http.RegisterEvents(api, pool, cfg)
 }
