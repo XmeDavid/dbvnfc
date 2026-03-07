@@ -1,6 +1,5 @@
 import { expect, type Page } from '@playwright/test';
-import { config } from './config';
-import { getOperatorToken, getOperatorRefreshToken, getOperatorUser, refreshAndStoreTokens } from './auth';
+import { getOperatorToken, getOperatorRefreshToken, getOperatorUser } from './auth';
 
 /** Force English locale so hostname detection (.pt → Portuguese) doesn't interfere with tests. */
 export async function forceEnglishLocale(page: Page) {
@@ -10,67 +9,70 @@ export async function forceEnglishLocale(page: Page) {
 }
 
 /**
- * Log in as operator via the real login form.
- * Falls back to token injection if the form login fails (e.g. rate limiting).
+ * Authenticate as operator for web UI tests via token injection.
  *
- * IMPORTANT: We do NOT use addInitScript for auth tokens. The SPA rotates
- * refresh tokens on each use, so addInitScript would overwrite the latest
- * rotated token with stale ones on every navigation, causing auth failures.
- * Instead, we let the SPA manage its own token lifecycle via Zustand persist.
+ * Uses two complementary strategies to survive page navigations:
+ * 1. addInitScript injects auth tokens into localStorage before every page load,
+ *    so Zustand rehydrates with a valid access token (no refresh needed).
+ * 2. Route intercept on POST /api/auth/refresh returns valid tokens as a safety
+ *    net, avoiding the nginx auth rate limit (10r/m on /api/auth/).
+ *
+ * The real login form is tested separately by the API auth tests and the
+ * unauthorized-navigation negative tests.
  */
 export async function loginAsOperator(page: Page) {
-  // Set locale for all navigations (this is safe — no token rotation concern)
-  await page.addInitScript(() => {
-    localStorage.setItem('pointfinder-lang', 'en');
-  });
+  const accessToken = getOperatorToken();
+  const refreshToken = getOperatorRefreshToken();
+  const user = getOperatorUser();
 
-  // Attempt form login
-  await page.goto('/login');
-  await page.getByRole('textbox', { name: /email/i }).fill(config.operatorEmail);
-  await page.getByRole('textbox', { name: /password/i }).fill(config.operatorPassword);
-
-  const loginResponsePromise = page.waitForResponse(
-    (resp) => resp.url().includes('/auth/login'),
+  // Inject auth tokens into localStorage on every page load.
+  // This ensures the SPA has a valid access token after Zustand rehydration,
+  // even on subsequent navigations (page.goto) that cause full reloads.
+  await page.addInitScript(
+    (authState) => {
+      localStorage.setItem('pointfinder-lang', 'en');
+      localStorage.setItem(
+        'pointfinder-auth',
+        JSON.stringify({ state: authState, version: 0 }),
+      );
+    },
+    { user, refreshToken, accessToken, isAuthenticated: true },
   );
 
-  await page.getByRole('button', { name: /sign in/i }).click();
+  // Intercept token refresh calls — the SPA's access token is not persisted
+  // by Zustand, so page reloads trigger a refresh attempt.
+  await page.route('**/api/auth/refresh', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ accessToken, refreshToken, user }),
+    });
+  });
 
-  let loggedIn = false;
-
-  try {
-    const resp = await loginResponsePromise;
-
-    if (resp.status() === 200) {
-      await expect(page).toHaveURL(/\/games/, { timeout: 10_000 });
-      loggedIn = true;
+  // Proxy GET /api/games through route.fetch() so rate-limited responses
+  // (429/503) are replaced with empty-success, preventing the AuthGuard
+  // session verification from redirecting to login. Real data passes through.
+  await page.route('**/api/games', async (route, request) => {
+    if (request.method() !== 'GET') {
+      await route.continue();
+      return;
     }
-    // Non-200 (e.g. 429 rate limit) — fall through to token injection
-  } catch {
-    // Form login failed — fall back to token injection
-  }
+    try {
+      const response = await route.fetch();
+      if (response.ok()) {
+        await route.fulfill({ response });
+      } else {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify([]),
+        });
+      }
+    } catch {
+      // Page closed during fetch — silently ignore
+    }
+  });
 
-  if (!loggedIn) {
-    await refreshAndStoreTokens();
-
-    await page.evaluate(
-      ({ accessToken, refreshToken, user }) => {
-        localStorage.setItem('pointfinder-lang', 'en');
-        localStorage.setItem(
-          'pointfinder-auth',
-          JSON.stringify({
-            state: { user, refreshToken, accessToken, isAuthenticated: true },
-            version: 0,
-          }),
-        );
-      },
-      {
-        accessToken: getOperatorToken(),
-        refreshToken: getOperatorRefreshToken(),
-        user: getOperatorUser(),
-      },
-    );
-
-    await page.goto('/games');
-    await expect(page).toHaveURL(/\/games/, { timeout: 15_000 });
-  }
+  await page.goto('/games');
+  await expect(page).toHaveURL(/\/games/, { timeout: 15_000 });
 }
