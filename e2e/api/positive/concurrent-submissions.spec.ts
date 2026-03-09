@@ -19,9 +19,12 @@ import { appendCreatedGameId } from '../../shared/run-context';
 import { getOperatorToken, joinPlayerAndStoreToken } from '../../shared/auth';
 import { config } from '../../shared/config';
 
-// P23: 6 players submit simultaneously
+const PLAYER_COUNT = Number(process.env.E2E_CONCURRENCY_PLAYERS ?? '20');
+
+// P23: N players submit simultaneously (default 20, override with E2E_CONCURRENCY_PLAYERS)
 test.describe('P23: concurrent submissions', () => {
   test.describe.configure({ mode: 'serial' });
+  test.setTimeout(120_000);
 
   let gameId: string;
   let baseId: string;
@@ -48,9 +51,9 @@ test.describe('P23: concurrent submissions', () => {
 
     await createAssignment(operatorToken, gameId, { baseId, challengeId });
 
-    // Create 6 teams and join one player per team
+    // Create N teams and join one player per team
     const joinCodes: string[] = [];
-    for (let i = 0; i < 6; i++) {
+    for (let i = 0; i < PLAYER_COUNT; i++) {
       const teamRes = await createTeam(operatorToken, gameId, teamFixture(i));
       expect(teamRes.status).toBe(201);
       joinCodes.push(teamRes.data.joinCode);
@@ -60,10 +63,15 @@ test.describe('P23: concurrent submissions', () => {
     const liveRes = await updateGameStatus(operatorToken, gameId, 'live');
     expect(liveRes.status).toBe(200);
 
-    // Join all 6 players
-    for (let i = 0; i < 6; i++) {
-      const joined = await joinPlayerAndStoreToken(joinCodes[i], `ConcurrentPlayer${i}`);
-      playerTokens.push(joined.token);
+    // Join all players (batch in groups of 5 to avoid overwhelming the server)
+    for (let batch = 0; batch < PLAYER_COUNT; batch += 5) {
+      const batchCodes = joinCodes.slice(batch, batch + 5);
+      const results = await Promise.all(
+        batchCodes.map((code, i) =>
+          joinPlayerAndStoreToken(code, `ConcurrentPlayer${batch + i}`),
+        ),
+      );
+      playerTokens.push(...results.map((r) => r.token));
     }
   });
 
@@ -72,8 +80,8 @@ test.describe('P23: concurrent submissions', () => {
     await deleteGame(operatorToken, gameId).catch(() => {});
   });
 
-  test('P23: all 6 players check in and submit simultaneously', async () => {
-    // All 6 check in concurrently
+  test(`P23: all ${PLAYER_COUNT} players check in and submit simultaneously`, async () => {
+    // All players check in concurrently
     const checkInResults = await Promise.all(
       playerTokens.map((token) => playerCheckIn(token, gameId, baseId)),
     );
@@ -81,7 +89,7 @@ test.describe('P23: concurrent submissions', () => {
       expect(r.status).toBe(200);
     }
 
-    // All 6 submit simultaneously
+    // All players submit simultaneously
     const submitResults = await Promise.all(
       playerTokens.map((token) =>
         submitAnswer(token, gameId, {
@@ -95,11 +103,11 @@ test.describe('P23: concurrent submissions', () => {
       expect(r.status).toBe(201);
     }
 
-    // Operator sees exactly 6 submissions
+    // Operator sees exactly N submissions
     const subRes = await getSubmissions(operatorToken, gameId);
     expect(subRes.status).toBe(200);
     expect(Array.isArray(subRes.data)).toBe(true);
-    expect(subRes.data.length).toBe(6);
+    expect(subRes.data.length).toBe(PLAYER_COUNT);
   });
 });
 

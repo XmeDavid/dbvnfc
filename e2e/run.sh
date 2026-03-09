@@ -16,7 +16,7 @@ MAESTRO_BIN=""
 
 uses_local_default_target() {
   case "$CMD" in
-    smoke|smoke:web|smoke:web:local|smoke:ios|smoke:android|api|api:local|api:positive|web|web:local|ios|android|all|all:local|cleanup|local:up|local:down)
+    smoke|smoke:web|smoke:web:local|smoke:ios|smoke:android|api|api:local|api:positive|web|web:firefox|web:webkit|web:all|web:local|ios|android|all|all:local|cleanup|local:up|local:down)
       return 0
       ;;
     *)
@@ -499,9 +499,12 @@ run_mobile_suite() {
   (( ${#failed[@]} == 0 ))
 }
 
-run_api()      { run_playwright --project=api; }
-run_api_pos()  { run_playwright --project=api --grep-invert @negative; }
-run_web()      { run_playwright --project=web; }
+run_api()          { run_playwright --project=api; }
+run_api_pos()      { run_playwright --project=api --grep-invert @negative; }
+run_web()          { run_playwright --project=web; }
+run_web_firefox()  { run_playwright --project=web-firefox; }
+run_web_webkit()   { run_playwright --project=web-webkit; }
+run_web_all()      { run_playwright --project=web --project=web-firefox --project=web-webkit; }
 run_ios() {
   ensure_ios_simulator
   run_mobile_suite ios
@@ -549,6 +552,15 @@ case "$CMD" in
     ;;
   web)
     run_managed_with_lifecycle run_web
+    ;;
+  web:firefox)
+    run_managed_with_lifecycle run_web_firefox
+    ;;
+  web:webkit)
+    run_managed_with_lifecycle run_web_webkit
+    ;;
+  web:all)
+    run_managed_with_lifecycle run_web_all
     ;;
   web:local)
     run_managed_with_lifecycle run_web
@@ -609,7 +621,10 @@ case "$CMD" in
     echo "  api            Local stack → setup → API tests → teardown"
     echo "  api:local      Alias for the local API flow"
     echo "  api:positive   Local stack → setup → API positive only → teardown"
-    echo "  web            Local stack → setup → web UI tests → teardown"
+    echo "  web            Local stack → setup → web UI tests (Chromium) → teardown"
+    echo "  web:firefox    Local stack → setup → web UI tests (Firefox) → teardown"
+    echo "  web:webkit     Local stack → setup → web UI tests (WebKit/Safari) → teardown"
+    echo "  web:all        Local stack → setup → web UI tests (all browsers) → teardown"
     echo "  web:local      Alias for the local web flow"
     echo "  ios            Setup → Maestro iOS flows → teardown"
     echo "  android        Setup → Maestro Android flows → teardown"
